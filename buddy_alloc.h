@@ -15,8 +15,13 @@
 #ifndef BUDDY_ALLOC_H
 #define BUDDY_ALLOC_H
 
-#include <limits.h>
+#ifdef __cplusplus
+#define _Bool bool
+#else
 #include <stdalign.h>
+#endif
+
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -75,6 +80,23 @@ void buddy_free(struct buddy *buddy, void *ptr);
 #define BUDDY_ALLOC_ALIGN (sizeof(size_t) * CHAR_BIT)
 #endif
 
+#ifdef __cplusplus
+    #include <bitset>
+    #define popcount(x) std::bitset<8>(x).count()
+    static size_t clzl(size_t x) {
+        x |= (x >> 1);
+        x |= (x >> 2);
+        x |= (x >> 4);
+        x |= (x >> 8);
+        x |= (x >> 16);
+        x |= (x >> 32);
+        return std::bitset<sizeof(size_t) * CHAR_BIT>(~x).count();
+    }
+#else
+    #define popcount(x) __builtin_popcount(x)
+    #define clzl(x)     __builtin_clzl(x)
+#endif
+
 /*
  * Debug functions
  */
@@ -88,7 +110,7 @@ typedef size_t buddy_tree_pos;
 
 struct buddy_tree_interval {
     buddy_tree_pos from;
-    buddy_tree_pos to;    
+    buddy_tree_pos to;
 };
 
 /*
@@ -472,7 +494,7 @@ void *buddy_realloc(struct buddy *buddy, void *ptr, size_t requested_size) {
     }
 
     /* Find the position tracking this address */
-    buddy_tree_pos origin = position_for_address(buddy, ptr);
+    buddy_tree_pos origin = position_for_address(buddy, (unsigned char *)ptr);
     if (!origin) {
         return NULL;
     }
@@ -895,7 +917,7 @@ static void buddy_tree_shrink(struct buddy_tree *t, uint8_t desired_order) {
         t->order = next_order;
         t->upper_pos_bound = 1u << t->order;
         buddy_tree_populate_size_for_order(t);
-    }   
+    }
 }
 
 static _Bool buddy_tree_valid(struct buddy_tree *t, buddy_tree_pos pos) {
@@ -1181,7 +1203,7 @@ static void buddy_tree_debug(FILE *stream, struct buddy_tree *t, buddy_tree_pos 
             struct internal_position pos_internal =
                 buddy_tree_internal_position_tree(t, pos);
             size_t pos_status = read_from_internal_position(buddy_tree_bits(t), pos_internal);
-            size_t pos_size = start_size 
+            size_t pos_size = start_size
                 >> ((buddy_tree_depth(pos) - 1u)
                     % ((sizeof(size_t) * CHAR_BIT)-1));
             fprintf(stream, "%.*s",
@@ -1312,7 +1334,7 @@ static void bitset_clear_range(unsigned char *bitset, size_t from_pos, size_t to
         bitset[to_bucket] &= ~bitset_char_mask[0][to_index];
         while(++from_bucket != to_bucket) {
             bitset[from_bucket] = 0;
-        }      
+        }
     }
 }
 
@@ -1342,13 +1364,13 @@ static size_t bitset_count_range(unsigned char *bitset, size_t from_pos, size_t 
     size_t to_index = to_pos % CHAR_BIT;
 
     if (from_bucket == to_bucket) {
-        return __builtin_popcount(bitset[from_bucket] & bitset_char_mask[from_index][to_index]);
+        return popcount(bitset[from_bucket] & bitset_char_mask[from_index][to_index]);
     }
 
-    size_t result = __builtin_popcount(bitset[from_bucket] & bitset_char_mask[from_index][7])
-        + __builtin_popcount(bitset[to_bucket]  & bitset_char_mask[0][to_index]);
+    size_t result = popcount(bitset[from_bucket] & bitset_char_mask[from_index][7])
+        + popcount(bitset[to_bucket]  & bitset_char_mask[0][to_index]);
     while(++from_bucket != to_bucket) {
-        result += __builtin_popcount(bitset[from_bucket]);
+        result += popcount(bitset[from_bucket]);
     }
     return result;
 }
@@ -1394,12 +1416,12 @@ static void bitset_debug(FILE *stream, unsigned char *bitset, size_t length) {
 /* Returns the higest set bit position for the given value. Do not call with zero. */
 static inline size_t highest_bit_position(size_t value) {
     assert(value);
-    return ((sizeof(size_t) * CHAR_BIT) - __builtin_clzl(value));
+    return ((sizeof(size_t) * CHAR_BIT) - clzl(value));
 }
 
 static inline size_t ceiling_power_of_two(size_t value) {
     value += !value; /* branchless x -> { 1 for 0, x for x } */
-    return 1u << ((sizeof(size_t) * CHAR_BIT) - __builtin_clzl(value + value - 1)-1);
+    return 1u << ((sizeof(size_t) * CHAR_BIT) - clzl(value + value - 1) - 1);
 }
 
 #endif /* BUDDY_ALLOC_IMPLEMENTATION */
